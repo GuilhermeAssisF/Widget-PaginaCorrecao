@@ -23,14 +23,99 @@ var Pagina_Correcao_IRHO = SuperWidget.extend({
             return;
         }
 
-        // Inicializa OAuth e Carrega Dados
+        // Inicializa OAuth
         that.setupOauth();
-        that.carregarDadosProcesso();
+
+        console.log("[DEBUG] ID da Solicitação encontrado na URL: " + that.idSolicitacao);
+            
+        // NOVO FLUXO: Verificar se está na atividade 150 antes de carregar os dados
+        that.verificarAtividadeEContinuar(that.idSolicitacao);
 
         // Configura input de arquivo para permitir seleção múltipla
         $("#fileupload_" + that.instanceId).on("change", function (e) {
             that.handleFileSelect(e);
         });
+    },
+
+    // =========================================================================
+    // TRAVA DE SEGURANÇA (VERIFICA ATIVIDADE 150)
+    // =========================================================================
+    verificarAtividadeEContinuar: function (idSolicitacao) {
+        var that = this;
+        console.log("[DEBUG] Iniciando consulta no dataset 'processHistory' via Proxy para a solicitação: " + idSolicitacao);
+
+        var url = WCMAPI.getServerURL() + '/api/public/ecm/dataset/datasets';
+        
+        var payloadObj = {
+            name: "processHistory",
+            constraints: [
+                { _field: "processHistoryPK.processInstanceId", _initialValue: idSolicitacao, _finalValue: idSolicitacao, _type: 1, _likeSearch: false },
+                { _field: "active", _initialValue: true, _finalValue: true, _type: 1, _likeSearch: false }
+            ]
+        };
+
+        var dataProxy = { 
+            name: "ds_irho_api_proxy", 
+            constraints: [
+                { _field: "action", _initialValue: "GET_DATASET", _finalValue: "GET_DATASET", _type: 1, _likeSearch: false },
+                { _field: "payload", _initialValue: JSON.stringify(payloadObj), _finalValue: JSON.stringify(payloadObj), _type: 1, _likeSearch: false }
+            ] 
+        };
+
+        $.ajax({
+            url: url, type: 'POST', contentType: 'application/json', data: JSON.stringify(dataProxy),
+            headers: { "Authorization": that.getOAuthHeader(url, 'POST').Authorization },
+            success: function (resProxy) {
+                console.log("[DEBUG] Retorno Bruto do Proxy na verificação de atividade:", resProxy);
+
+                if (resProxy.content && resProxy.content.values && resProxy.content.values.length > 0) {
+                    var rProxy = resProxy.content.values[0];
+                    if (rProxy.status == "success") {
+                        var resData = JSON.parse(rProxy.response);
+                        console.log("[DEBUG] Dados processados do processHistory:", resData);
+
+                        if (resData.records && resData.records.length > 0) {
+                            var historicoAtivo = resData.records[0];
+                            var atividadeAtual = historicoAtivo.stateSequence; 
+                            
+                            console.log("[DEBUG] --> Atividade atual identificada: " + atividadeAtual);
+
+                            // VERIFICAÇÃO PARA A ATIVIDADE 150 (AGUARDANDO CORREÇÃO DO CANDIDATO)
+                            if (atividadeAtual == 150 || atividadeAtual == "150") {
+                                console.log("[DEBUG] --> SUCESSO: A solicitação está na atividade 150. Liberando carregamento.");
+                                that.carregarDadosProcesso(); // Chama a função original
+                            } else {
+                                console.warn("[DEBUG] --> BLOQUEIO: A solicitação NÃO está na 150. Está na: " + atividadeAtual);
+                                that.bloquearAcesso("Esta solicitação não está mais disponível para correção. Ela já foi reenviada ao RH ou encontra-se em outra etapa.");
+                            }
+                        } else {
+                            console.warn("[DEBUG] --> Nenhum histórico ativo encontrado. (Pode estar finalizada)");
+                            that.bloquearAcesso("Solicitação não encontrada ou processo já encerrado.");
+                        }
+                    } else {
+                        console.error("[DEBUG] Erro interno do Proxy:", rProxy.message);
+                        that.bloquearAcesso("Erro ao validar o status da solicitação.");
+                    }
+                } else {
+                    console.error("[DEBUG] A API não retornou conteúdos válidos.");
+                    that.bloquearAcesso("Erro de comunicação com o servidor.");
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error("[DEBUG] Falha na requisição AJAX da verificação:", error);
+                that.bloquearAcesso("Falha ao verificar segurança da solicitação.");
+            }
+        });
+    },
+
+    bloquearAcesso: function (mensagem) {
+        // Substitui todo o conteúdo do formulário de correção pela mensagem de bloqueio
+        $("#mainContent_" + this.instanceId).html(
+            '<div class="alert alert-warning text-center" style="padding: 40px; margin-top: 20px; border-color: #faebcc; background-color: #fcf8e3; border-radius: 8px;">' +
+            '<h3 style="color:#8a6d3b; margin-top: 0;"><i class="flaticon flaticon-lock icon-xl"></i> Acesso Bloqueado</h3>' +
+            '<p style="color:#8a6d3b; font-size:16px; margin-top: 15px;">' + mensagem + '</p>' +
+            '</div>'
+        );
     },
 
     bindings: {
@@ -299,12 +384,12 @@ var Pagina_Correcao_IRHO = SuperWidget.extend({
         // O consumer/token key e secrets ficam seguros na função de montagem (getOAuthHeader).
         var _0x = function(s) { return atob(s); };
         this.consumer = { 
-            key: _0x('YXBwX2FkbWlzc2FvX2NhbmRpZGF0bw=='), 
-            secret: _0x('U2VncmVkby5AZG1pc3Nhby4yMDI1IyE=') 
+            key: _0x('YXBwX2FkbWlzc2FvX2NhbmRpZGF0bw=='),
+            secret: _0x('U2VncmVkby5AZG1pc3Nhby4yMDI1IyE=')
         };
         this.token = { 
-            key: _0x('MzY0NTA4MjUtYWYwNS00ZDllLTgzMjMtNDliZTM4Zjc2NTY2'), 
-            secret: _0x('YzViY2U0ZjMtMWMyMi00MzAwLWFlMDUtYWVhZjAyNTg0MmRjNjhhY2U2ZGMtYjkwNi00ZTU1LTgzZWItMDFlN2UyNDMyZjNh') 
+            key: _0x('NWQ0ZGNiODAtMTI0OC00YWY1LWFjNzEtNDJjMjQ3ZThmNmI5'),
+            secret: _0x('MWU3MzJiZjItNmQyOC00MDFmLTljZGEtY2Y1ZjllOTllYTY0ZDgyOTExZGYtOTgyYi00YjgyLThhN2MtN2JkZmEyODcxODg0')
         };
 
         this.oauth = OAuth({

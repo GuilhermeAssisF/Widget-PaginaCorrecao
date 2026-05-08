@@ -1,8 +1,8 @@
 application.type=widget
 application.code=Pagina_Correcao_IRHO
-application.title=Pagina_Correcao_IRHO
-application.description=Pagina_Correcao_IRHO
-application.category=SYSTEM
+application.title=Pagina Correcao IRHO
+application.description=Pagina Correcao IRHO
+application.category=Admissão IRHO
 application.renderer=freemarker
 developer.code=Guilherme
 developer.name=giloc
